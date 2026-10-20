@@ -65,21 +65,16 @@ public class LoginFrame extends JFrame {
             );
 
             if (user == null) {
-                showMessage(
-                    "Identifiants invalides.",
-                    Color.RED
-                );
+                showMessage("Identifiants invalides.", java.awt.Color.RED);
             } else {
-                showMessage(
-                    "Bienvenue " + user.getUsername() + " !",
-                    new Color(0, 128, 0)
-                );
+                new ContactFrame(user).setVisible(true);
+                dispose();
             }
 
         } catch (Exception e) {
             showMessage(
                 "Erreur : " + e.getMessage(),
-                Color.RED
+                java.awt.Color.RED
             );
         }
     }
