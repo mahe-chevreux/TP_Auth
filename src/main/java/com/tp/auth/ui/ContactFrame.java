@@ -6,6 +6,8 @@ import java.awt.FlowLayout;
 import java.util.List;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 
 import com.tp.auth.dao.ContactDao;
@@ -17,8 +19,7 @@ public class ContactFrame extends JFrame {
     private final User user;
     private final ContactDao dao = new ContactDao();
 
-    // Tableau non modifiable
-    // La colonne ID est utilisée en interne et masquée à l'écran
+    // Modèle du tableau : ID masqué, cellules non modifiables
     private final DefaultTableModel model = new DefaultTableModel(
         new String[]{"ID", "Nom", "Prénom", "Email", "Téléphone"}, 0
     ) {
@@ -29,6 +30,9 @@ public class ContactFrame extends JFrame {
     };
 
     private final JTable table = new JTable(model);
+
+    // Champ de recherche
+    private final JTextField rechercheField = new JTextField(25);
 
     public ContactFrame(User user) {
         super("Gestion des contacts");
@@ -42,10 +46,10 @@ public class ContactFrame extends JFrame {
         this.user = user;
 
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        setSize(750, 400);
+        setSize(750, 450);
         setLocationRelativeTo(null);
 
-        // Haut : utilisateur connecté et bouton de déconnexion
+        // Partie supérieure : utilisateur connecté et déconnexion
         JPanel haut = new JPanel(new BorderLayout(10, 10));
 
         JLabel bienvenue = new JLabel(
@@ -57,9 +61,13 @@ public class ContactFrame extends JFrame {
         haut.add(bienvenue, BorderLayout.WEST);
         haut.add(deconnexionBtn, BorderLayout.EAST);
 
+        haut.setBorder(
+            BorderFactory.createEmptyBorder(10, 10, 10, 10)
+        );
+
         deconnexionBtn.addActionListener(e -> deconnecter());
 
-        // Centre : tableau des contacts
+        // Tableau des contacts
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
         // Masquer la colonne ID
@@ -69,7 +77,41 @@ public class ContactFrame extends JFrame {
 
         JScrollPane scrollPane = new JScrollPane(table);
 
-        // Bas : boutons d'action
+        // Recherche au-dessus du tableau
+        JPanel recherchePanel = new JPanel(
+            new FlowLayout(FlowLayout.LEFT)
+        );
+
+        recherchePanel.add(new JLabel("Rechercher :"));
+        recherchePanel.add(rechercheField);
+
+        // Actualiser les résultats à chaque modification du texte
+        rechercheField.getDocument().addDocumentListener(
+            new DocumentListener() {
+
+                @Override
+                public void insertUpdate(DocumentEvent e) {
+                    chargerContacts();
+                }
+
+                @Override
+                public void removeUpdate(DocumentEvent e) {
+                    chargerContacts();
+                }
+
+                @Override
+                public void changedUpdate(DocumentEvent e) {
+                    chargerContacts();
+                }
+            }
+        );
+
+        // Zone centrale : recherche + tableau
+        JPanel centre = new JPanel(new BorderLayout());
+        centre.add(recherchePanel, BorderLayout.NORTH);
+        centre.add(scrollPane, BorderLayout.CENTER);
+
+        // Boutons du bas
         JPanel bas = new JPanel(new FlowLayout());
 
         JButton ajouterBtn = new JButton("Ajouter");
@@ -86,28 +128,51 @@ public class ContactFrame extends JFrame {
 
         // Assemblage de la fenêtre
         add(haut, BorderLayout.NORTH);
-        add(scrollPane, BorderLayout.CENTER);
+        add(centre, BorderLayout.CENTER);
         add(bas, BorderLayout.SOUTH);
 
-        // Chargement automatique des contacts
+        // Chargement initial
         chargerContacts();
     }
 
-    // Charge uniquement les contacts de l'utilisateur connecté
+    // Afficher les contacts de l'utilisateur connecté
+    // et filtrer selon la recherche
     private void chargerContacts() {
         try {
             List<Contact> contacts = dao.findByUser(user.getId());
 
+            String recherche = rechercheField.getText()
+                .trim()
+                .toLowerCase();
+
             model.setRowCount(0);
 
             for (Contact c : contacts) {
-                model.addRow(new Object[]{
-                    c.getId(),
-                    c.getNom(),
-                    c.getPrenom(),
-                    c.getEmail(),
-                    c.getTelephone()
-                });
+
+                String nom = c.getNom() == null
+                    ? "" : c.getNom().toLowerCase();
+
+                String prenom = c.getPrenom() == null
+                    ? "" : c.getPrenom().toLowerCase();
+
+                String email = c.getEmail() == null
+                    ? "" : c.getEmail().toLowerCase();
+
+                // Champ vide : tous les contacts sont affichés
+                // Sinon : recherche dans le nom, prénom ou email
+                if (recherche.isEmpty()
+                    || nom.contains(recherche)
+                    || prenom.contains(recherche)
+                    || email.contains(recherche)) {
+
+                    model.addRow(new Object[]{
+                        c.getId(),
+                        c.getNom(),
+                        c.getPrenom(),
+                        c.getEmail(),
+                        c.getTelephone()
+                    });
+                }
             }
 
         } catch (Exception e) {
@@ -115,7 +180,7 @@ public class ContactFrame extends JFrame {
         }
     }
 
-    // Ouvre un formulaire vide pour ajouter un contact
+    // Ajouter un contact avec un formulaire vide
     private void ajouter() {
         ContactDialog dialog = new ContactDialog(
             this,
@@ -127,7 +192,7 @@ public class ContactFrame extends JFrame {
         dialog.setVisible(true);
     }
 
-    // Ouvre le formulaire prérempli pour modifier un contact
+    // Modifier le contact sélectionné
     private void modifier() {
         int ligne = table.getSelectedRow();
 
@@ -156,7 +221,7 @@ public class ContactFrame extends JFrame {
         }
     }
 
-    // Supprime le contact sélectionné après confirmation
+    // Supprimer un contact après confirmation
     private void supprimer() {
         int ligne = table.getSelectedRow();
 
@@ -168,22 +233,29 @@ public class ContactFrame extends JFrame {
             return;
         }
 
-        int choix = JOptionPane.showConfirmDialog(
-            this,
-            "Voulez-vous vraiment supprimer ce contact ?",
-            "Confirmation",
-            JOptionPane.YES_NO_OPTION
-        );
-
-        if (choix != JOptionPane.YES_OPTION) {
-            return;
-        }
-
         try {
             Contact contact = obtenirContact(ligne);
 
+            // Confirmation personnalisée
+            int choix = JOptionPane.showConfirmDialog(
+                this,
+                "Supprimer "
+                    + contact.getNom() + " "
+                    + contact.getPrenom() + " ?",
+                "Confirmation de suppression",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE
+            );
+
+            // Ne rien supprimer si l'utilisateur choisit Non
+            if (choix != JOptionPane.YES_OPTION) {
+                return;
+            }
+
+            // Suppression limitée à l'utilisateur connecté
             dao.delete(contact.getId(), user.getId());
 
+            // Actualiser le tableau après suppression
             chargerContacts();
 
         } catch (Exception e) {
@@ -191,7 +263,7 @@ public class ContactFrame extends JFrame {
         }
     }
 
-    // Retrouve le contact sélectionné grâce à son identifiant
+    // Retrouver le contact sélectionné grâce à son ID
     private Contact obtenirContact(int ligne) throws Exception {
         int id = (int) model.getValueAt(ligne, 0);
 
@@ -206,13 +278,13 @@ public class ContactFrame extends JFrame {
         throw new Exception("Contact introuvable.");
     }
 
-    // Ferme les contacts et retourne à la connexion
+    // Déconnexion
     private void deconnecter() {
         dispose();
         new LoginFrame().setVisible(true);
     }
 
-    // Affiche les messages d'erreur
+    // Affichage des erreurs
     private void afficherErreur(Exception e) {
         String message = e.getMessage();
 
